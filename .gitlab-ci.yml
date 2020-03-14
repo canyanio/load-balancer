@@ -1,0 +1,44 @@
+image: docker:18
+
+stages:
+  - build
+  - publish
+
+before_script:
+  - export DOCKER_REPOSITORY="canyan/load-balancer"
+  - export DOCKER_TAG=${CI_COMMIT_REF_SLUG:-latest}
+  - export SERVICE_IMAGE=$DOCKER_REPOSITORY:$DOCKER_TAG
+  - export COMMIT_TAG="$CI_COMMIT_REF_SLUG"_"$CI_COMMIT_SHA"
+
+build:
+  stage: build
+  services:
+    - docker:dind
+  script:
+    - echo "building load-balancer for ${SERVICE_IMAGE}"
+    - docker build -t $SERVICE_IMAGE .
+    - docker save $SERVICE_IMAGE > image.tar
+  artifacts:
+    expire_in: 2w
+    paths:
+      - image.tar
+  tags:
+    - docker
+
+publish:
+  stage: publish
+  services:
+    - docker:dind
+  dependencies:
+    - build
+  script:
+    - docker load -i image.tar
+    - docker tag $SERVICE_IMAGE $DOCKER_REPOSITORY:$COMMIT_TAG
+    - docker tag $SERVICE_IMAGE $DOCKER_REPOSITORY:$CI_COMMIT_REF_SLUG
+    - echo -n $DOCKER_HUB_PASSWORD | docker login -u $DOCKER_HUB_USERNAME --password-stdin
+    - docker push $DOCKER_REPOSITORY:$COMMIT_TAG
+    - docker push $SERVICE_IMAGE
+  only:
+    - /^(master|[0-9]+\.[0-9]+\.x)$/
+  tags:
+    - docker
